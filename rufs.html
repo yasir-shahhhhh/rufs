@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roufs - AI Avatar</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000000;
+            font-family: 'Inter', sans-serif;
+            color: white;
+            user-select: none;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            background: radial-gradient(circle at center, #0f172a 0%, #000000 100%);
+        }
+
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        /* User Camera Preview (Draggable) */
+        #user-cam-wrapper {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 200px;
+            height: 150px;
+            z-index: 20;
+            pointer-events: auto;
+            cursor: grab;
+            transition: box-shadow 0.3s;
+        }
+        #user-cam-wrapper:active { cursor: grabbing; transform: scale(1.02); }
+
+        #user-cam-container {
+            width: 100%;
+            height: 100%;
+            background: #1f2937;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255,255,255,0.1);
+            position: relative;
+        }
+
+        #user-video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        #vision-indicator {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(16, 185, 129, 0.9); /* Emerald Green */
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        /* Status Bar */
+        #status-bar {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            gap: 10px;
+            pointer-events: auto;
+        }
+
+        .badge {
+            background: rgba(17, 24, 39, 0.6);
+            backdrop-filter: blur(12px);
+            padding: 8px 16px;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .dot { width: 8px; height: 8px; border-radius: 50%; background-color: #6b7280; transition: all 0.3s; }
+        .dot.active { background-color: #3b82f6; box-shadow: 0 0 12px #3b82f6; transform: scale(1.2); }
+        .dot.thinking { background-color: #a855f7; animation: pulse 1s infinite; }
+        .dot.listening { background-color: #10b981; }
+        .dot.muted { background-color: #ef4444; }
+
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        /* Captions */
+        #captions-area {
+            position: absolute;
+            bottom: 130px; 
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            pointer-events: none;
+            padding: 0 20px;
+        }
+
+        #captions-text {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(8px);
+            padding: 16px 28px;
+            border-radius: 20px;
+            font-size: 1.15rem;
+            font-weight: 500;
+            max-width: 700px;
+            text-align: center;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+            color: rgba(255,255,255,0.95);
+            border: 1px solid rgba(255,255,255,0.05);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        }
+        #captions-text.visible { opacity: 1; transform: translateY(0) scale(1); }
+
+        /* Bottom Controls */
+        #controls-container {
+            position: absolute;
+            bottom: 40px;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            pointer-events: auto;
+            z-index: 50;
+        }
+
+        #controls-bar {
+            background: rgba(17, 24, 39, 0.7);
+            backdrop-filter: blur(20px);
+            padding: 12px 32px;
+            display: flex;
+            gap: 24px;
+            border-radius: 24px;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4);
+        }
+
+        .btn-control {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: none;
+            background: #334155;
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        .btn-control::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.1);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .btn-control:hover { background: #475569; transform: translateY(-2px); }
+        .btn-control:hover::after { opacity: 1; }
+        .btn-control:active { transform: translateY(0); }
+        
+        .btn-control.danger { background: #dc2626; }
+        .btn-control.danger:hover { background: #ef4444; }
+        .btn-control.muted-state { background: #ef4444; color: white; }
+
+        /* Start Screen */
+        #start-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #020617;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .loader {
+            width: 48px; height: 48px;
+            border: 4px solid rgba(255,255,255,0.1);
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+    </style>
+</head>
+<body>
+
+    <!-- 3D World -->
+    <div id="canvas-container"></div>
+
+    <!-- UI Overlay -->
+    <div id="ui-layer">
+        <!-- Top Left Status -->
+        <div id="status-bar">
+            <div class="badge">
+                <div id="status-dot" class="dot"></div>
+                <span id="status-text">Offline</span>
+            </div>
+        </div>
+
+        <!-- Top Right Camera -->
+        <div id="user-cam-wrapper">
+            <div id="user-cam-container">
+                <video id="user-video" autoplay muted playsinline></video>
+                <div id="no-camera-icon" class="hidden absolute inset-0 flex flex-col items-center justify-center text-gray-500 bg-slate-900">
+                    <i data-lucide="camera-off" width="32" height="32"></i>
+                    <span class="text-xs mt-2">Camera Off</span>
+                </div>
+                <div id="vision-indicator">
+                    <i data-lucide="eye" width="10"></i> Seeing
+                </div>
+            </div>
+        </div>
+
+        <!-- Captions -->
+        <div id="captions-area">
+            <div id="captions-text"></div>
+        </div>
+
+        <!-- Bottom Controls -->
+        <div id="controls-container">
+            <div id="controls-bar">
+                <button class="btn-control" id="btn-video" title="Toggle Video">
+                    <i data-lucide="video" width="24" height="24"></i>
+                </button>
+                <button class="btn-control" id="btn-mic" title="Toggle Mic">
+                    <i data-lucide="mic" width="24" height="24"></i>
+                </button>
+                <button class="btn-control danger" id="btn-end" title="End Call">
+                    <i data-lucide="phone-off" width="24" height="24"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Entry Screen -->
+    <div id="start-screen">
+        <div class="relative mb-8">
+            <div class="absolute inset-0 bg-blue-600 blur-3xl opacity-20 rounded-full"></div>
+            <div class="relative z-10 bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl">
+                <i data-lucide="brain-circuit" width="64" height="64" class="text-blue-400"></i>
+            </div>
+        </div>
+        <h1 class="text-5xl font-bold text-white mb-3 tracking-tight">Roufs</h1>
+        <p class="text-slate-400 mb-10 text-lg">Digital Avatar • Created by <strong>Inventor Yasir</strong></p>
+        
+        <button id="btn-start" class="bg-blue-600 hover:bg-blue-500 text-white px-10 py-4 rounded-full font-bold text-lg transition-all shadow-lg shadow-blue-900/30 flex items-center gap-3 hover:scale-105">
+            Wake Roufs <i data-lucide="power" width="20"></i>
+        </button>
+
+        <div id="loading-ui" class="hidden flex flex-col items-center mt-8">
+            <div class="loader mb-4"></div>
+            <span class="text-slate-500 text-sm font-mono">INITIALIZING NEURAL UPLINK...</span>
+        </div>
+        
+        <div id="error-msg" class="hidden mt-6 text-red-400 text-sm bg-red-950/50 border border-red-900/50 px-6 py-3 rounded-lg max-w-md text-center"></div>
+    </div>
+
+    <!-- Hidden Canvas for Vision -->
+    <canvas id="snapshot-canvas" style="display: none;"></canvas>
+
+    <script>
+        // --- API Config ---
+        const apiKey = "AIzaSyCc6_MqSAG2939nvff_gARFX5daG71KWK8"; 
+
+        // --- State Management ---
+        const state = {
+            callActive: false,
+            speaking: false,
+            listening: false,
+            thinking: false,
+            micEnabled: true, // Add explicit mic state
+            drag: { active: false, currentX: 0, currentY: 0, initialX: 0, initialY: 0, xOffset: 0, yOffset: 0 },
+            cameraStream: null,
+            recognition: null
+        };
+        
+        let selectedVoice = null; // For Web TTS
+
+        // --- UI Refs ---
+        const ui = {
+            startScreen: document.getElementById('start-screen'),
+            btnStart: document.getElementById('btn-start'),
+            btnMic: document.getElementById('btn-mic'),
+            btnVideo: document.getElementById('btn-video'),
+            btnEnd: document.getElementById('btn-end'),
+            loader: document.getElementById('loading-ui'),
+            error: document.getElementById('error-msg'),
+            userVideo: document.getElementById('user-video'),
+            camWrapper: document.getElementById('user-cam-wrapper'),
+            noCameraIcon: document.getElementById('no-camera-icon'),
+            statusDot: document.getElementById('status-dot'),
+            statusText: document.getElementById('status-text'),
+            captions: document.getElementById('captions-text'),
+            visionInd: document.getElementById('vision-indicator'),
+            snapCanvas: document.getElementById('snapshot-canvas')
+        };
+
+        // --- 3D Avatar Engine: "Liquid Neural Network" ---
+        let scene, camera, renderer;
+        let blob, core; 
+        let time = 0;
+
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            // Deep space fog
+            scene.fog = new THREE.FogExp2(0x020617, 0.02);
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 6;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            container.appendChild(renderer.domElement);
+
+            // 1. The Liquid Network (Wireframe Mesh)
+            const geometry = new THREE.IcosahedronGeometry(2.2, 3); 
+            
+            // Store original positions for vertex animation
+            const count = geometry.attributes.position.count;
+            geometry.originalPositions = new Float32Array(count * 3);
+            for (let i = 0; i < count * 3; i++) {
+                geometry.originalPositions[i] = geometry.attributes.position.array[i];
+            }
+
+            const material = new THREE.MeshStandardMaterial({
+                color: 0x60a5fa,      // Blue-400
+                wireframe: true,      // Connected lines, not dots
+                transparent: true,
+                opacity: 0.6,
+                emissive: 0x1d4ed8, // Slight inner glow
+                emissiveIntensity: 0.2,
+                roughness: 0.2,
+                metalness: 0.8
+            });
+
+            blob = new THREE.Mesh(geometry, material);
+            scene.add(blob);
+
+            // 2. Core Energy (Inner Solid)
+            const coreGeo = new THREE.IcosahedronGeometry(1, 2);
+            const coreMat = new THREE.MeshBasicMaterial({
+                color: 0x93c5fd, // Light Blue
+                wireframe: false,
+                transparent: true,
+                opacity: 0.8
+            });
+            core = new THREE.Mesh(coreGeo, coreMat);
+            scene.add(core);
+
+            // Lights for the 3D mesh
+            const ambientLight = new THREE.AmbientLight(0x1e293b, 2);
+            scene.add(ambientLight);
+
+            const pointLight = new THREE.PointLight(0x60a5fa, 3, 20);
+            pointLight.position.set(5, 5, 5);
+            scene.add(pointLight);
+            
+            const backLight = new THREE.PointLight(0xa855f7, 2, 20);
+            backLight.position.set(-5, -5, -5);
+            scene.add(backLight);
+
+            // Resize
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.005;
+
+            // Audio Viz Logic (Based on speaking state, not analysis)
+            // We'll make it pulse slightly when speaking
+            let vol = 0;
+            if (state.speaking) {
+                // Create a simple pulsing effect
+                vol = (Math.sin(time * 20) + 1) / 4; // 0 to 0.5
+            }
+
+            // Animate Liquid Blob Vertices
+            const positions = blob.geometry.attributes.position.array;
+            const originals = blob.geometry.originalPositions;
+            
+            // We iterate through vertices to create a "breathing" wave effect
+            for(let i=0; i < positions.length; i+=3) {
+                const ox = originals[i];
+                const oy = originals[i+1];
+                const oz = originals[i+2];
+
+                // Perlin-like noise using sine waves based on position & time
+                const wave = Math.sin(time * 2 + ox * 0.5) * 0.2 + 
+                             Math.cos(time * 1.5 + oy * 0.5) * 0.2;
+                
+                // Audio Reaction: Expand heavily when loud
+                const expansion = 1 + (vol * 0.6);
+                
+                // Apply transformation
+                const scale = expansion + wave * 0.5;
+
+                positions[i]   = ox * scale;
+                positions[i+1] = oy * scale;
+                positions[i+2] = oz * scale;
+            }
+            blob.geometry.attributes.position.needsUpdate = true;
+
+            // Slow rotation of the entire system
+            blob.rotation.y = time * 0.1;
+            blob.rotation.z = time * 0.05;
+
+            // Core pulses with volume
+            core.scale.setScalar(0.8 + vol * 0.5);
+            core.rotation.x -= 0.01;
+            core.rotation.y -= 0.01;
+            
+            // Dynamic Glow Intensity
+            blob.material.emissiveIntensity = 0.2 + (vol * 1.0);
+
+            renderer.render(scene, camera);
+        }
+
+        // --- Gemini Logic ---
+
+        function snapshot() {
+            // Only snap if stream exists AND video track is enabled and not hidden
+            if (!state.cameraStream || ui.userVideo.style.display === 'none' || !state.cameraStream.getVideoTracks()[0]?.enabled) return null;
+            
+            const v = ui.userVideo;
+            const c = ui.snapCanvas;
+            const ctx = c.getContext('2d');
+            if (v.videoWidth) {
+                c.width = v.videoWidth;
+                c.height = v.videoHeight;
+                ctx.drawImage(v, 0, 0);
+                return c.toDataURL('image/jpeg', 0.8).split(',')[1];
+            }
+            return null;
+        }
+
+        async function askGemini(text) {
+            setStatus('thinking');
+            
+            try {
+                const img = snapshot();
+                if(img) {
+                    ui.visionInd.style.opacity = 1;
+                    setTimeout(() => ui.visionInd.style.opacity = 0, 2000);
+                }
+
+                // Check Camera State for System Prompt
+                let visionContext = "You can see the user via their camera.";
+                const isCameraOff = !state.cameraStream || !state.cameraStream.getVideoTracks()[0]?.enabled || ui.userVideo.style.display === 'none';
+
+                if (isCameraOff) {
+                    visionContext = "NOTE: The user's camera is explicitly turned OFF. You CANNOT see them. If they ask you to look at something or describe their surroundings, politely inform them that their camera is off.";
+                }
+
+                // Updated System Prompt with Name & Identity & Vision Context
+                const parts = [{ text: `System Prompt: You are 'Roufs', a highly advanced and helpful AI avatar created by 'Inventor Yasir'. ${visionContext} Be conversational, concise (max 2 sentences), and friendly. The user said: "${text}"` }];
+                
+                if (img) parts.push({ inlineData: { mimeType: "image/jpeg", data: img }});
+
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ contents: [{ parts }] })
+                });
+
+                if (!res.ok) {
+                    throw new Error(`API Error: ${res.status} ${res.statusText}`);
+                }
+
+                const data = await res.json();
+                const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "I'm unable to process that.";
+                
+                showCaption(reply);
+                speak(reply); // Call new Web TTS function
+
+            } catch(e) {
+                console.error(e);
+                showCaption("Sorry, I'm having trouble connecting.");
+                setStatus('listening'); // Go back to listening
+                startListen();
+            }
+        }
+
+        // --- Audio System (Web Speech API) ---
+        
+        function findVoice() {
+             // This function tries to find a "good" voice
+            const voices = window.speechSynthesis.getVoices();
+            if (!voices.length) return;
+
+            // Try to find a "Paul" or "Betty" like voice (common system voices)
+            let paul = voices.find(v => v.name.includes("Paul") && v.lang.startsWith('en'));
+            let betty = voices.find(v => v.name.includes("Betty") && v.lang.startsWith('en'));
+            
+            // Fallbacks
+            let google = voices.find(v => v.name.includes("Google") && v.lang.startsWith('en-US'));
+            let microsoft = voices.find(v => v.name.includes("David") || v.name.includes("Zira") && v.lang.startsWith('en-US'));
+            let apple = voices.find(v => v.name.includes("Samantha") && v.lang.startsWith('en-US'));
+            let en_gb = voices.find(v => v.lang.startsWith('en-GB'));
+            let en_us = voices.find(v => v.lang.startsWith('en-US'));
+
+            selectedVoice = paul || betty || google || microsoft || apple || en_gb || en_us || voices.find(v => v.lang.startsWith('en'));
+        }
+
+        // Populate voices
+        window.speechSynthesis.onvoiceschanged = findVoice;
+        findVoice();
+
+
+        function speak(text) {
+            stopListen(); // Stop listening while speaking
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            
+            if (selectedVoice) {
+                utterance.voice = selectedVoice;
+            }
+            // You can also adjust pitch and rate here if desired
+            // utterance.pitch = 1.0;
+            // utterance.rate = 1.0;
+
+            utterance.onstart = () => {
+                state.speaking = true;
+                setStatus('active');
+            };
+
+            utterance.onend = () => {
+                state.speaking = false;
+                if (state.micEnabled) {
+                    setStatus('listening');
+                    setTimeout(startListen, 200); // Give a small buffer
+                } else {
+                    setStatus('muted');
+                }
+            };
+
+            utterance.onerror = (e) => {
+                console.error("Speech synthesis error:", e);
+                state.speaking = false;
+                // Ensure we start listening again even if speech fails
+                if (state.micEnabled) {
+                    setStatus('listening');
+                    startListen();
+                } else {
+                    setStatus('muted');
+                }
+            };
+
+            window.speechSynthesis.speak(utterance);
+        }
+
+
+        // --- Speech Recognition ---
+        function initSR() {
+            if (!('webkitSpeechRecognition' in window)) {
+                alert("Speech recognition is not supported in this browser. Please use Google Chrome.");
+                return;
+            }
+            const sr = new webkitSpeechRecognition();
+            sr.continuous = false; 
+            sr.lang = 'en-US';
+            
+            sr.onstart = () => { 
+                if(!state.speaking) setStatus('listening'); 
+                state.listening = true;
+            };
+            sr.onend = () => { 
+                state.listening = false;
+                // Auto-restart only if call active, NOT speaking, and MIC IS ON
+                if(state.callActive && !state.speaking && !state.thinking && state.micEnabled) {
+                    try { sr.start(); } catch(e){ /* May error if already stopping */ }
+                }
+            };
+            sr.onresult = (e) => {
+                const t = e.results[0][0].transcript;
+                showCaption(`"${t}"`);
+                askGemini(t);
+            };
+            sr.onerror = (e) => { 
+                if(e.error === 'no-speech') {
+                    // This is normal, just ignore
+                } else if (e.error === 'audio-capture') {
+                    console.warn("SR: No microphone found.");
+                } else if (e.error === 'not-allowed') {
+                    console.error("SR: Mic permission denied.");
+                    ui.error.textContent = "Microphone permission denied. Please allow mic access.";
+                    ui.error.classList.remove('hidden');
+                } else {
+                    console.log("SR Error:", e.error);
+                }
+            };
+            
+            state.recognition = sr;
+        }
+
+        function startListen() { 
+            if(state.recognition && !state.listening && !state.speaking && state.micEnabled) {
+                try { 
+                    state.recognition.start(); 
+                } catch(e){
+                    // This can happen if it's already starting, totally fine.
+                }
+            }
+        }
+        function stopListen() { 
+            if(state.recognition && state.listening) {
+                try {
+                    state.recognition.stop(); 
+                } catch(e) {}
+            }
+        }
+
+        // --- App Logic ---
+        async function start() {
+            ui.btnStart.style.display = 'none';
+            ui.loader.classList.remove('hidden');
+            ui.loader.style.display = 'block';
+            ui.error.classList.add('hidden'); // Hide previous errors
+
+            try {
+                // Try to get both video and audio
+                try {
+                    state.cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                    ui.userVideo.srcObject = state.cameraStream;
+                } catch(e) {
+                    // If video fails (no camera, or permission denied for video), try audio-only
+                    console.warn("Could not get video, trying audio-only.", e.message);
+                    try {
+                        state.cameraStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        ui.userVideo.style.display = 'none';
+                        ui.noCameraIcon.classList.remove('hidden');
+                        // Disable video button
+                        ui.btnVideo.style.display = 'none';
+                    } catch (audioError) {
+                         // If audio also fails, this is critical
+                        console.error("Could not get audio.", audioError.message);
+                        throw new Error("Microphone access is required to talk to Roufs. Please grant permission and reload.");
+                    }
+                }
+
+                // We have audio, so proceed
+                initSR();
+                findVoice(); // Try to find voices again
+                
+                state.callActive = true;
+                ui.startScreen.style.opacity = 0;
+                setTimeout(()=> {
+                    ui.startScreen.style.display = 'none';
+                    startListen(); // Start listening after UI transition
+                }, 800);
+                
+                showCaption("Roufs is listening...");
+                lucide.createIcons();
+
+            } catch(e) {
+                ui.loader.style.display = 'none';
+                ui.btnStart.style.display = 'flex';
+                ui.error.classList.remove('hidden');
+                ui.error.textContent = e.message;
+            }
+        }
+
+        function end() { 
+            // Stop all processes and reload
+            state.callActive = false;
+            stopListen();
+            window.speechSynthesis.cancel(); // Stop any speaking
+            
+            if (state.cameraStream) {
+                state.cameraStream.getTracks().forEach(track => track.stop());
+            }
+            location.reload(); 
+        }
+
+        function toggleMic() {
+            if (!state.callActive) return;
+            
+            state.micEnabled = !state.micEnabled;
+            
+            // 1. Toggle Audio Track (Stream)
+            if(state.cameraStream && state.cameraStream.getAudioTracks().length > 0) {
+                state.cameraStream.getAudioTracks()[0].enabled = state.micEnabled;
+            }
+
+            // 2. Handle Speech Recognition
+            if (state.micEnabled) {
+                ui.btnMic.innerHTML = `<i data-lucide="mic" width="24"></i>`;
+                ui.btnMic.classList.remove('muted-state');
+                startListen(); // This will check speaking status internally
+            } else {
+                ui.btnMic.innerHTML = `<i data-lucide="mic-off" width="24"></i>`;
+                ui.btnMic.classList.add('muted-state');
+                stopListen();
+                // Only set status to muted if not currently speaking
+                if (!state.speaking) {
+                    setStatus('muted');
+                }
+            }
+            lucide.createIcons();
+        }
+
+        function toggleVideo() {
+            if (!state.cameraStream) return;
+            const videoTracks = state.cameraStream.getVideoTracks();
+            
+            if (videoTracks.length > 0) {
+                const enabled = !videoTracks[0].enabled;
+                videoTracks[0].enabled = enabled;
+                
+                if (enabled) {
+                    ui.btnVideo.innerHTML = `<i data-lucide="video" width="24"></i>`;
+                    ui.btnVideo.classList.remove('muted-state');
+                    ui.noCameraIcon.classList.add('hidden');
+                } else {
+                    ui.btnVideo.innerHTML = `<i data-lucide="video-off" width="24"></i>`;
+                    ui.btnVideo.classList.add('muted-state');
+                    ui.noCameraIcon.classList.remove('hidden');
+                }
+                lucide.createIcons();
+            }
+        }
+
+        // --- Helper UI ---
+        function setStatus(mode) {
+            ui.statusDot.className = 'dot';
+            state.thinking = false;
+
+            if(mode === 'listening') { 
+                ui.statusDot.classList.add('listening'); 
+                ui.statusText.textContent = "Listening"; 
+            }
+            else if(mode === 'thinking') { 
+                ui.statusDot.classList.add('thinking'); 
+                ui.statusText.textContent = "Processing"; 
+                state.thinking = true;
+            }
+            else if(mode === 'active') { 
+                ui.statusDot.classList.add('active'); 
+                ui.statusText.textContent = "Speaking"; 
+            }
+            else if(mode === 'muted') {
+                ui.statusDot.classList.add('muted');
+                ui.statusText.textContent = "Muted";
+            }
+            else ui.statusText.textContent = "Offline";
+        }
+
+        function showCaption(txt) {
+            ui.captions.textContent = txt;
+            ui.captions.classList.add('visible');
+            clearTimeout(window.capT);
+            window.capT = setTimeout(() => ui.captions.classList.remove('visible'), 6000);
+        }
+
+        // --- Drag Logic ---
+        function initDrag() {
+            const el = ui.camWrapper;
+            const onStart = (e) => {
+                state.drag.active = true;
+                const c = e.touches ? e.touches[0] : e;
+                state.drag.initialX = c.clientX - state.drag.xOffset;
+                state.drag.initialY = c.clientY - state.drag.yOffset;
+            };
+            const onEnd = () => {
+                state.drag.active = false;
+                state.drag.initialX = state.drag.currentX;
+                state.drag.initialY = state.drag.currentY;
+            };
+            const onMove = (e) => {
+                if(!state.drag.active) return;
+                // Prevent page scroll on touch
+                e.preventDefault(); 
+                const c = e.touches ? e.touches[0] : e;
+                state.drag.currentX = c.clientX - state.drag.initialX;
+                state.drag.currentY = c.clientY - state.drag.initialY;
+                state.drag.xOffset = state.drag.currentX;
+                state.drag.yOffset = state.drag.currentY;
+                el.style.transform = `translate3d(${state.drag.currentX}px, ${state.drag.currentY}px, 0)`;
+            };
+
+            el.addEventListener('mousedown', onStart);
+            window.addEventListener('mouseup', onEnd);
+            window.addEventListener('mousemove', onMove);
+            // Add passive:false to allow preventDefault() in onMove
+            el.addEventListener('touchstart', onStart, {passive:false});
+            window.addEventListener('touchend', onEnd);
+            window.addEventListener('touchmove', onMove, {passive:false});
+        }
+
+        // Init
+        init3D();
+        initDrag();
+        lucide.createIcons();
+        ui.btnStart.onclick = start;
+        ui.btnEnd.onclick = end;
+        ui.btnMic.onclick = toggleMic;
+        ui.btnVideo.onclick = toggleVideo;
+
+    </script>
+</body>
+</html>
